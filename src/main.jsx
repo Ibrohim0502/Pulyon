@@ -1,52 +1,86 @@
-import React, { useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
-const STORAGE_KEY = "pulyon_data_v1";
-const PIN_KEY = "pulyon_pin_v1";
+const STORAGE_KEY = "pulyon_data_v2";
+const PIN_KEY = "pulyon_pin_v2";
+
+const AUTO_LOCK_MS = 5 * 60 * 1000;
+const MAX_AMOUNT = 1000000000000;
+
+const EXPENSE_CATEGORIES = [
+  "Oziq-ovqat",
+  "Transport",
+  "Ta'lim",
+  "Uy",
+  "Telefon/Internet",
+  "Kiyim",
+  "Ko'ngilochar",
+  "Sog'liq",
+  "Boshqa",
+];
 
 const EMPTY_DATA = {
   transactions: [],
   debts: [],
 };
 
+function normalizeData(value) {
+  if (!value || typeof value !== "object") {
+    return EMPTY_DATA;
+  }
+
+  return {
+    transactions: Array.isArray(value.transactions)
+      ? value.transactions
+      : [],
+    debts: Array.isArray(value.debts)
+      ? value.debts
+      : [],
+  };
+}
+
 function safeParse(value) {
   try {
-    const parsed = JSON.parse(value);
-
-    if (
-      parsed &&
-      Array.isArray(parsed.transactions) &&
-      Array.isArray(parsed.debts)
-    ) {
-      return parsed;
-    }
-  } catch {}
-
-  return EMPTY_DATA;
+    return normalizeData(JSON.parse(value));
+  } catch {
+    return EMPTY_DATA;
+  }
 }
 
 function loadData() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? safeParse(saved) : EMPTY_DATA;
+
+    if (!saved) {
+      return EMPTY_DATA;
+    }
+
+    return safeParse(saved);
   } catch {
     return EMPTY_DATA;
   }
 }
 
 function localDate() {
-  const d = new Date();
+  const date = new Date();
 
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
 }
 
 function uid() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return `${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
 }
 
 function money(value) {
@@ -69,12 +103,45 @@ function setStoredPin(pin) {
   } catch {}
 }
 
+function formatDate(date) {
+  if (!date) return "";
+
+  const parts = String(date).split("-");
+
+  if (parts.length !== 3) {
+    return date;
+  }
+
+  return `${parts[2]}.${parts[1]}.${parts[0]}`;
+}
+
+function getLastDates(count = 7) {
+  const dates = [];
+
+  for (let i = count - 1; i >= 0; i -= 1) {
+    const date = new Date();
+
+    date.setDate(date.getDate() - i);
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    dates.push(`${year}-${month}-${day}`);
+  }
+
+  return dates;
+}
+
 /* =========================
    PIN SCREEN
 ========================= */
 
 function PinScreen({ savedPin, onUnlock }) {
-  const [mode, setMode] = useState(savedPin ? "login" : "create");
+  const [mode, setMode] = useState(
+    savedPin ? "login" : "create"
+  );
+
   const [pin, setPin] = useState("");
   const [firstPin, setFirstPin] = useState("");
   const [error, setError] = useState("");
@@ -88,9 +155,9 @@ function PinScreen({ savedPin, onUnlock }) {
 
   const subtitle =
     mode === "create"
-      ? "Ilovangizni himoyalash uchun 4 xonali PIN yarating"
+      ? "Pulyon ilovangiz uchun 4 xonali PIN yarating"
       : mode === "confirm"
-      ? "Yangi PIN kodni qayta kiriting"
+      ? "Yangi PIN kodni yana bir marta kiriting"
       : "Davom etish uchun PIN kodni kiriting";
 
   const addNumber = (number) => {
@@ -136,6 +203,7 @@ function PinScreen({ savedPin, onUnlock }) {
     }
 
     if (pin === savedPin) {
+      setError("");
       onUnlock(pin);
     } else {
       setPin("");
@@ -151,6 +219,7 @@ function PinScreen({ savedPin, onUnlock }) {
       <div className="pin-container">
         <div className="pin-brand">
           <div className="pin-brand-icon">P</div>
+
           <div>
             <strong>Pulyon</strong>
             <span>Shaxsiy pul nazorati</span>
@@ -164,7 +233,11 @@ function PinScreen({ savedPin, onUnlock }) {
         <h1>{title}</h1>
         <p>{subtitle}</p>
 
-        <div className={`pin-dots ${error ? "pin-shake" : ""}`}>
+        <div
+          className={`pin-dots ${
+            error ? "pin-shake" : ""
+          }`}
+        >
           {[0, 1, 2, 3].map((item) => (
             <span
               key={item}
@@ -173,19 +246,27 @@ function PinScreen({ savedPin, onUnlock }) {
           ))}
         </div>
 
-        {error && <div className="pin-error-text">{error}</div>}
+        {error && (
+          <div className="pin-error-text">
+            {error}
+          </div>
+        )}
 
         <div className="pin-keypad">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((number) => (
-            <button
-              key={number}
-              type="button"
-              className="pin-key"
-              onClick={() => addNumber(String(number))}
-            >
-              {number}
-            </button>
-          ))}
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(
+            (number) => (
+              <button
+                key={number}
+                type="button"
+                className="pin-key"
+                onClick={() =>
+                  addNumber(String(number))
+                }
+              >
+                {number}
+              </button>
+            )
+          )}
 
           <button
             type="button"
@@ -212,7 +293,11 @@ function PinScreen({ savedPin, onUnlock }) {
           </button>
         </div>
 
-        <button className="pin-submit" type="button" onClick={submit}>
+        <button
+          className="pin-submit"
+          type="button"
+          onClick={submit}
+        >
           {mode === "login" ? "Ochish" : "Davom etish"}
         </button>
       </div>
@@ -228,49 +313,181 @@ function App() {
   const [data, setData] = useState(loadData);
   const [page, setPage] = useState("home");
 
-  const [savedPin, setSavedPinState] = useState(getPin);
-  const [unlocked, setUnlocked] = useState(!getPin());
+  const initialPin = getPin();
+
+  const [savedPin, setSavedPinState] = useState(
+    initialPin
+  );
+
+  const [unlocked, setUnlocked] = useState(
+    !initialPin
+  );
+
+  const [historySearch, setHistorySearch] =
+    useState("");
+
+  const [historyFilter, setHistoryFilter] =
+    useState("all");
+
+  const lastActivityRef = useRef(Date.now());
+
+  /* =========================
+     SAVE DATA
+  ========================= */
 
   const save = (next) => {
-    setData(next);
+    const normalized = normalizeData(next);
+
+    setData(normalized);
 
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(normalized)
+      );
     } catch {
-      alert("Ma'lumotni saqlashda xatolik yuz berdi.");
+      alert(
+        "Ma'lumotni saqlashda xatolik yuz berdi."
+      );
     }
   };
 
+  /* =========================
+     NAVIGATION
+  ========================= */
+
   const goTo = (nextPage) => {
     setPage(nextPage);
+    lastActivityRef.current = Date.now();
   };
+
+  /* =========================
+     ACTIVITY / AUTO LOCK
+  ========================= */
+
+  useEffect(() => {
+    if (!unlocked || !savedPin) {
+      return undefined;
+    }
+
+    const registerActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    const events = [
+      "pointerdown",
+      "keydown",
+      "touchstart",
+      "scroll",
+    ];
+
+    events.forEach((eventName) => {
+      window.addEventListener(
+        eventName,
+        registerActivity,
+        { passive: true }
+      );
+    });
+
+    const timer = window.setInterval(() => {
+      const inactiveTime =
+        Date.now() - lastActivityRef.current;
+
+      if (inactiveTime >= AUTO_LOCK_MS) {
+        setUnlocked(false);
+        setPage("home");
+      }
+    }, 5000);
+
+    return () => {
+      window.clearInterval(timer);
+
+      events.forEach((eventName) => {
+        window.removeEventListener(
+          eventName,
+          registerActivity
+        );
+      });
+    };
+  }, [unlocked, savedPin]);
+
+  /* =========================
+     STATS
+  ========================= */
 
   const stats = useMemo(() => {
     const income = data.transactions
       .filter((item) => item.type === "income")
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      .reduce(
+        (sum, item) =>
+          sum + Number(item.amount || 0),
+        0
+      );
 
     const expense = data.transactions
       .filter((item) => item.type === "expense")
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      .reduce(
+        (sum, item) =>
+          sum + Number(item.amount || 0),
+        0
+      );
 
     const lent = data.debts
       .filter((item) => !item.repaid)
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      .reduce(
+        (sum, item) =>
+          sum + Number(item.amount || 0),
+        0
+      );
+
+    const returnedDebt = data.transactions
+      .filter(
+        (item) =>
+          item.type === "income" &&
+          item.debtId
+      )
+      .reduce(
+        (sum, item) =>
+          sum + Number(item.amount || 0),
+        0
+      );
 
     const today = localDate();
 
     const todayIncome = data.transactions
       .filter(
-        (item) => item.type === "income" && item.date === today
+        (item) =>
+          item.type === "income" &&
+          item.date === today
       )
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      .reduce(
+        (sum, item) =>
+          sum + Number(item.amount || 0),
+        0
+      );
 
     const todayExpense = data.transactions
       .filter(
-        (item) => item.type === "expense" && item.date === today
+        (item) =>
+          item.type === "expense" &&
+          item.date === today
       )
-      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      .reduce(
+        (sum, item) =>
+          sum + Number(item.amount || 0),
+        0
+      );
+
+    const totalTransactions =
+      data.transactions.length;
+
+    const activeDebts = data.debts.filter(
+      (item) => !item.repaid
+    ).length;
+
+    const completedDebts = data.debts.filter(
+      (item) => item.repaid
+    ).length;
 
     return {
       income,
@@ -279,28 +496,123 @@ function App() {
       balance: income - expense - lent,
       todayIncome,
       todayExpense,
+      returnedDebt,
+      totalTransactions,
+      activeDebts,
+      completedDebts,
     };
   }, [data]);
 
   /* =========================
-     INCOME
+     7 DAY ANALYTICS
+  ========================= */
+
+  const analytics = useMemo(() => {
+    const dates = getLastDates(7);
+
+    return dates.map((date) => {
+      const income = data.transactions
+        .filter(
+          (item) =>
+            item.type === "income" &&
+            item.date === date
+        )
+        .reduce(
+          (sum, item) =>
+            sum + Number(item.amount || 0),
+          0
+        );
+
+      const expense = data.transactions
+        .filter(
+          (item) =>
+            item.type === "expense" &&
+            item.date === date
+        )
+        .reduce(
+          (sum, item) =>
+            sum + Number(item.amount || 0),
+          0
+        );
+
+      return {
+        date,
+        income,
+        expense,
+        shortDate: date.slice(5),
+      };
+    });
+  }, [data]);
+
+  const maxAnalyticsValue = useMemo(() => {
+    const values = analytics.flatMap((item) => [
+      item.income,
+      item.expense,
+    ]);
+
+    return Math.max(...values, 1);
+  }, [analytics]);
+
+  /* =========================
+     EXPENSE CATEGORIES
+  ========================= */
+
+  const categoryStats = useMemo(() => {
+    const result = {};
+
+    data.transactions
+      .filter((item) => item.type === "expense")
+      .forEach((item) => {
+        const category =
+          item.category || "Boshqa";
+
+        result[category] =
+          (result[category] || 0) +
+          Number(item.amount || 0);
+      });
+
+    return Object.entries(result)
+      .sort((a, b) => b[1] - a[1])
+      .map(([category, amount]) => ({
+        category,
+        amount,
+      }));
+  }, [data]);
+
+  const maxCategoryAmount =
+    categoryStats.length > 0
+      ? categoryStats[0].amount
+      : 1;
+
+  /* =========================
+     ADD INCOME
   ========================= */
 
   const addIncome = (event) => {
     event.preventDefault();
 
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(
+      event.currentTarget
+    );
 
     const amount = Number(form.get("amount"));
-    const source = String(form.get("source") || "").trim();
-    const note = String(form.get("note") || "").trim();
+
+    const source = String(
+      form.get("source") || ""
+    ).trim();
+
+    const note = String(
+      form.get("note") || ""
+    ).trim();
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      alert("Kirim summasi 0 dan katta bo'lishi kerak.");
+      alert(
+        "Kirim summasi 0 dan katta bo'lishi kerak."
+      );
       return;
     }
 
-    if (amount > 1000000000000) {
+    if (amount > MAX_AMOUNT) {
       alert("Summa juda katta.");
       return;
     }
@@ -317,7 +629,10 @@ function App() {
 
     save({
       ...data,
-      transactions: [transaction, ...data.transactions],
+      transactions: [
+        transaction,
+        ...data.transactions,
+      ],
     });
 
     event.currentTarget.reset();
@@ -325,23 +640,34 @@ function App() {
   };
 
   /* =========================
-     EXPENSE
+     ADD EXPENSE
   ========================= */
 
   const addExpense = (event) => {
     event.preventDefault();
 
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(
+      event.currentTarget
+    );
 
     const amount = Number(form.get("amount"));
-    const note = String(form.get("note") || "").trim();
+
+    const category = String(
+      form.get("category") || "Boshqa"
+    );
+
+    const note = String(
+      form.get("note") || ""
+    ).trim();
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      alert("Xarajat summasi 0 dan katta bo'lishi kerak.");
+      alert(
+        "Xarajat summasi 0 dan katta bo'lishi kerak."
+      );
       return;
     }
 
-    if (amount > 1000000000000) {
+    if (amount > MAX_AMOUNT) {
       alert("Summa juda katta.");
       return;
     }
@@ -358,6 +684,7 @@ function App() {
       id: uid(),
       type: "expense",
       amount,
+      category,
       note,
       date: localDate(),
       createdAt: Date.now(),
@@ -365,7 +692,10 @@ function App() {
 
     save({
       ...data,
-      transactions: [transaction, ...data.transactions],
+      transactions: [
+        transaction,
+        ...data.transactions,
+      ],
     });
 
     event.currentTarget.reset();
@@ -373,29 +703,41 @@ function App() {
   };
 
   /* =========================
-     DEBT
+     ADD DEBT
   ========================= */
 
   const addDebt = (event) => {
     event.preventDefault();
 
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(
+      event.currentTarget
+    );
 
-    const person = String(form.get("person") || "").trim();
+    const person = String(
+      form.get("person") || ""
+    ).trim();
+
     const amount = Number(form.get("amount"));
-    const note = String(form.get("note") || "").trim();
+
+    const note = String(
+      form.get("note") || ""
+    ).trim();
 
     if (!person) {
-      alert("Qarz olgan odamning ismini kiriting.");
+      alert(
+        "Qarz olgan odamning ismini kiriting."
+      );
       return;
     }
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      alert("Qarz summasi 0 dan katta bo'lishi kerak.");
+      alert(
+        "Qarz summasi 0 dan katta bo'lishi kerak."
+      );
       return;
     }
 
-    if (amount > 1000000000000) {
+    if (amount > MAX_AMOUNT) {
       alert("Summa juda katta.");
       return;
     }
@@ -427,10 +769,18 @@ function App() {
     goTo("home");
   };
 
-  const repayDebt = (id) => {
-    const debt = data.debts.find((item) => item.id === id);
+  /* =========================
+     REPAY DEBT
+  ========================= */
 
-    if (!debt || debt.repaid) return;
+  const repayDebt = (id) => {
+    const debt = data.debts.find(
+      (item) => item.id === id
+    );
+
+    if (!debt || debt.repaid) {
+      return;
+    }
 
     const transaction = {
       id: uid(),
@@ -456,29 +806,48 @@ function App() {
     save({
       ...data,
       debts,
-      transactions: [transaction, ...data.transactions],
+      transactions: [
+        transaction,
+        ...data.transactions,
+      ],
     });
   };
 
   /* =========================
-     DELETE
+     DELETE TRANSACTION
   ========================= */
 
   const deleteTransaction = (id) => {
-    const ok = confirm("Bu tranzaksiyani o'chirmoqchimisiz?");
+    const transaction =
+      data.transactions.find(
+        (item) => item.id === id
+      );
+
+    if (!transaction) return;
+
+    const ok = confirm(
+      "Bu tranzaksiyani o'chirmoqchimisiz?"
+    );
 
     if (!ok) return;
 
     save({
       ...data,
-      transactions: data.transactions.filter(
-        (item) => item.id !== id
-      ),
+      transactions:
+        data.transactions.filter(
+          (item) => item.id !== id
+        ),
     });
   };
 
+  /* =========================
+     DELETE DEBT
+  ========================= */
+
   const deleteDebt = (id) => {
-    const debt = data.debts.find((item) => item.id === id);
+    const debt = data.debts.find(
+      (item) => item.id === id
+    );
 
     if (!debt) return;
 
@@ -489,15 +858,23 @@ function App() {
       return;
     }
 
-    const ok = confirm("Bu qarz yozuvini o'chirmoqchimisiz?");
+    const ok = confirm(
+      "Bu qarz yozuvini o'chirmoqchimisiz?"
+    );
 
     if (!ok) return;
 
     save({
       ...data,
-      debts: data.debts.filter((item) => item.id !== id),
+      debts: data.debts.filter(
+        (item) => item.id !== id
+      ),
     });
   };
+
+  /* =========================
+     CLEAR DATA
+  ========================= */
 
   const clearAllData = () => {
     const ok = confirm(
@@ -511,34 +888,54 @@ function App() {
   };
 
   /* =========================
-     PIN
+     LOCK APP
   ========================= */
 
   const lockApp = () => {
-    if (!savedPin) return;
+    if (!savedPin) {
+      alert(
+        "Avval PIN kod yaratishingiz kerak."
+      );
+      return;
+    }
 
     setUnlocked(false);
-    goTo("home");
+    setPage("home");
   };
 
-  const changePin = () => {
-    if (!savedPin) return;
+  /* =========================
+     CHANGE PIN
+  ========================= */
 
-    const oldPin = prompt("Hozirgi PIN kodni kiriting:");
+  const changePin = () => {
+    if (!savedPin) {
+      alert("PIN kodi hali yaratilmagan.");
+      return;
+    }
+
+    const oldPin = prompt(
+      "Hozirgi PIN kodni kiriting:"
+    );
 
     if (oldPin !== savedPin) {
       alert("Hozirgi PIN noto'g'ri.");
       return;
     }
 
-    const newPin = prompt("Yangi 4 xonali PIN kiriting:");
+    const newPin = prompt(
+      "Yangi 4 xonali PIN kiriting:"
+    );
 
     if (!/^\d{4}$/.test(newPin || "")) {
-      alert("PIN aynan 4 ta raqamdan iborat bo'lishi kerak.");
+      alert(
+        "PIN aynan 4 ta raqamdan iborat bo'lishi kerak."
+      );
       return;
     }
 
-    const confirmPin = prompt("Yangi PINni yana kiriting:");
+    const confirmPin = prompt(
+      "Yangi PINni yana kiriting:"
+    );
 
     if (newPin !== confirmPin) {
       alert("PIN kodlar mos kelmadi.");
@@ -548,8 +945,163 @@ function App() {
     setStoredPin(newPin);
     setSavedPinState(newPin);
 
-    alert("PIN muvaffaqiyatli o'zgartirildi.");
+    alert(
+      "PIN muvaffaqiyatli o'zgartirildi."
+    );
   };
+
+  /* =========================
+     BACKUP EXPORT
+  ========================= */
+
+  const exportBackup = () => {
+    try {
+      const backup = {
+        app: "Pulyon",
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        data: normalizeData(data),
+      };
+
+      const blob = new Blob(
+        [JSON.stringify(backup, null, 2)],
+        {
+          type: "application/json",
+        }
+      );
+
+      const url = URL.createObjectURL(blob);
+
+      const link =
+        document.createElement("a");
+
+      link.href = url;
+
+      link.download = `pulyon-backup-${localDate()}.json`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(url);
+    } catch {
+      alert(
+        "Backup yaratishda xatolik yuz berdi."
+      );
+    }
+  };
+
+  /* =========================
+     BACKUP RESTORE
+  ========================= */
+
+  const restoreBackup = (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(
+          String(reader.result || "")
+        );
+
+        const restoredData =
+          parsed?.data
+            ? normalizeData(parsed.data)
+            : normalizeData(parsed);
+
+        if (
+          !Array.isArray(
+            restoredData.transactions
+          ) ||
+          !Array.isArray(restoredData.debts)
+        ) {
+          throw new Error(
+            "Backup formati noto'g'ri."
+          );
+        }
+
+        const ok = confirm(
+          "Backupdagi ma'lumotlar hozirgi ma'lumotlarni almashtiradi. Davom etasizmi?"
+        );
+
+        if (!ok) return;
+
+        save(restoredData);
+
+        alert(
+          "Backup muvaffaqiyatli tiklandi."
+        );
+
+        goTo("home");
+      } catch {
+        alert(
+          "Backup faylini o'qib bo'lmadi."
+        );
+      } finally {
+        event.target.value = "";
+      }
+    };
+
+    reader.onerror = () => {
+      alert(
+        "Faylni o'qishda xatolik yuz berdi."
+      );
+
+      event.target.value = "";
+    };
+
+    reader.readAsText(file);
+  };
+
+  /* =========================
+     HISTORY FILTER
+  ========================= */
+
+  const filteredTransactions = useMemo(() => {
+    const search =
+      historySearch.trim().toLowerCase();
+
+    return data.transactions.filter(
+      (transaction) => {
+        const matchesFilter =
+          historyFilter === "all" ||
+          transaction.type === historyFilter;
+
+        if (!matchesFilter) {
+          return false;
+        }
+
+        if (!search) {
+          return true;
+        }
+
+        const text = [
+          transaction.source,
+          transaction.note,
+          transaction.category,
+          transaction.date,
+          transaction.type,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        return text.includes(search);
+      }
+    );
+  }, [
+    data.transactions,
+    historySearch,
+    historyFilter,
+  ]);
+
+  /* =========================
+     PIN SCREEN
+  ========================= */
 
   if (!unlocked) {
     return (
@@ -560,17 +1112,25 @@ function App() {
             setSavedPinState(newPin);
           }
 
+          lastActivityRef.current =
+            Date.now();
+
           setUnlocked(true);
         }}
       />
     );
   }
 
+  /* =========================
+     MAIN UI
+  ========================= */
+
   return (
     <div className="app">
       <header className="topbar">
         <div>
           <div className="logo">Pulyon</div>
+
           <div className="subtitle">
             Shaxsiy pul nazorati
           </div>
@@ -578,14 +1138,19 @@ function App() {
 
         <button
           className="icon-btn"
-          onClick={() => goTo("settings")}
+          onClick={() =>
+            goTo("settings")
+          }
           type="button"
+          aria-label="Sozlamalar"
         >
           ⚙
         </button>
       </header>
 
       <main className="content">
+        {/* ================= HOME ================= */}
+
         {page === "home" && (
           <>
             <section className="balance-card">
@@ -594,55 +1159,107 @@ function App() {
 
               <div className="balance-label">
                 <span>Joriy balans</span>
+
                 <span className="balance-status">
-                  <i /> Faol
+                  <i />
+                  Faol
                 </span>
               </div>
 
-              <strong>{money(stats.balance)}</strong>
+              <strong>
+                {money(stats.balance)}
+              </strong>
 
               <div className="balance-footer">
-                <span>Pulyon balansingiz</span>
-                <span>{localDate()}</span>
+                <span>
+                  Pulyon balansingiz
+                </span>
+
+                <span>
+                  {formatDate(localDate())}
+                </span>
               </div>
             </section>
 
             <section className="stats-grid">
               <div className="stat-card">
-                <div className="stat-icon income">↗</div>
-                <span>Bugungi kirim</span>
-                <strong>{money(stats.todayIncome)}</strong>
+                <div className="stat-icon income">
+                  ↗
+                </div>
+
+                <span>
+                  Bugungi kirim
+                </span>
+
+                <strong>
+                  {money(
+                    stats.todayIncome
+                  )}
+                </strong>
               </div>
 
               <div className="stat-card">
-                <div className="stat-icon expense">↘</div>
-                <span>Bugungi xarajat</span>
-                <strong>{money(stats.todayExpense)}</strong>
+                <div className="stat-icon expense">
+                  ↘
+                </div>
+
+                <span>
+                  Bugungi xarajat
+                </span>
+
+                <strong>
+                  {money(
+                    stats.todayExpense
+                  )}
+                </strong>
               </div>
 
               <div className="stat-card">
-                <div className="stat-icon debt">◈</div>
-                <span>Berilgan qarz</span>
-                <strong>{money(stats.lent)}</strong>
+                <div className="stat-icon debt">
+                  ◈
+                </div>
+
+                <span>
+                  Berilgan qarz
+                </span>
+
+                <strong>
+                  {money(stats.lent)}
+                </strong>
               </div>
 
               <div className="stat-card">
-                <div className="stat-icon total">₽</div>
-                <span>Jami kirim</span>
-                <strong>{money(stats.income)}</strong>
+                <div className="stat-icon total">
+                  ₸
+                </div>
+
+                <span>
+                  Jami kirim
+                </span>
+
+                <strong>
+                  {money(stats.income)}
+                </strong>
               </div>
             </section>
 
             <section className="card">
               <div className="section-title">
-                <h2>Tezkor amallar</h2>
-                <p>Pulingizni tez boshqaring</p>
+                <h2>
+                  Tezkor amallar
+                </h2>
+
+                <p>
+                  Pulingizni tez boshqaring
+                </p>
               </div>
 
               <div className="quick-actions">
                 <button
                   type="button"
-                  onClick={() => goTo("income")}
+                  onClick={() =>
+                    goTo("income")
+                  }
                 >
                   <b>＋</b>
                   <span>Kirim</span>
@@ -650,7 +1267,9 @@ function App() {
 
                 <button
                   type="button"
-                  onClick={() => goTo("expense")}
+                  onClick={() =>
+                    goTo("expense")
+                  }
                 >
                   <b>−</b>
                   <span>Xarajat</span>
@@ -658,7 +1277,9 @@ function App() {
 
                 <button
                   type="button"
-                  onClick={() => goTo("debt")}
+                  onClick={() =>
+                    goTo("debt")
+                  }
                 >
                   <b>↗</b>
                   <span>Qarz</span>
@@ -666,10 +1287,12 @@ function App() {
 
                 <button
                   type="button"
-                  onClick={() => goTo("history")}
+                  onClick={() =>
+                    goTo("analytics")
+                  }
                 >
-                  <b>☷</b>
-                  <span>Tarix</span>
+                  <b>◔</b>
+                  <span>Analitika</span>
                 </button>
               </div>
             </section>
@@ -677,32 +1300,55 @@ function App() {
             <section className="card">
               <div className="section-head">
                 <div>
-                  <h2>Ochiq qarzlar</h2>
-                  <p>Qaytarilishi kutilayotgan pullar</p>
+                  <h2>
+                    Ochiq qarzlar
+                  </h2>
+
+                  <p>
+                    Qaytarilishi kutilayotgan
+                    pullar
+                  </p>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => goTo("debt")}
+                  onClick={() =>
+                    goTo("debt")
+                  }
                 >
                   Barchasi →
                 </button>
               </div>
 
-              {data.debts.filter((item) => !item.repaid).length ===
-              0 ? (
+              {data.debts.filter(
+                (item) => !item.repaid
+              ).length === 0 ? (
                 <div className="empty">
-                  <div className="empty-icon">✓</div>
-                  <b>Ochiq qarz yo'q</b>
-                  <span>Hozircha hammasi nazorat ostida.</span>
+                  <div className="empty-icon">
+                    ✓
+                  </div>
+
+                  <b>
+                    Ochiq qarz yo'q
+                  </b>
+
+                  <span>
+                    Hozircha hammasi nazorat
+                    ostida.
+                  </span>
                 </div>
               ) : (
                 <div className="list">
                   {data.debts
-                    .filter((item) => !item.repaid)
+                    .filter(
+                      (item) => !item.repaid
+                    )
                     .slice(0, 3)
                     .map((debt) => (
-                      <div className="list-item" key={debt.id}>
+                      <div
+                        className="list-item"
+                        key={debt.id}
+                      >
                         <div className="person-info">
                           <div className="person-avatar">
                             {debt.person
@@ -711,12 +1357,23 @@ function App() {
                           </div>
 
                           <div>
-                            <b>{debt.person}</b>
-                            <small>{debt.date}</small>
+                            <b>
+                              {debt.person}
+                            </b>
+
+                            <small>
+                              {formatDate(
+                                debt.date
+                              )}
+                            </small>
                           </div>
                         </div>
 
-                        <strong>{money(debt.amount)}</strong>
+                        <strong>
+                          {money(
+                            debt.amount
+                          )}
+                        </strong>
                       </div>
                     ))}
                 </div>
@@ -725,25 +1382,37 @@ function App() {
           </>
         )}
 
+        {/* ================= INCOME ================= */}
+
         {page === "income" && (
           <section className="card form-card">
             <div className="form-header">
-              <div className="form-icon income">↗</div>
+              <div className="form-icon income">
+                ↗
+              </div>
 
               <div>
-                <h1>Kirim qo'shish</h1>
-                <p>Hisobingizga yangi mablag' kiriting</p>
+                <h1>
+                  Kirim qo'shish
+                </h1>
+
+                <p>
+                  Hisobingizga yangi mablag'
+                  kiriting
+                </p>
               </div>
             </div>
 
             <form onSubmit={addIncome}>
               <label>
                 Summa
+
                 <input
                   name="amount"
                   type="number"
                   min="1"
                   step="1"
+                  inputMode="numeric"
                   placeholder="500000"
                   required
                 />
@@ -751,6 +1420,7 @@ function App() {
 
               <label>
                 Manba
+
                 <input
                   name="source"
                   maxLength="100"
@@ -760,6 +1430,7 @@ function App() {
 
               <label>
                 Izoh
+
                 <textarea
                   name="note"
                   maxLength="300"
@@ -767,39 +1438,75 @@ function App() {
                 />
               </label>
 
-              <button className="primary" type="submit">
+              <button
+                className="primary"
+                type="submit"
+              >
                 ✓ Kirimni saqlash
               </button>
             </form>
           </section>
         )}
 
+        {/* ================= EXPENSE ================= */}
+
         {page === "expense" && (
           <section className="card form-card">
             <div className="form-header">
-              <div className="form-icon expense">↘</div>
+              <div className="form-icon expense">
+                ↘
+              </div>
 
               <div>
-                <h1>Xarajat qo'shish</h1>
-                <p>Pulingiz qayerga sarflanganini yozing</p>
+                <h1>
+                  Xarajat qo'shish
+                </h1>
+
+                <p>
+                  Pulingiz qayerga
+                  sarflanganini yozing
+                </p>
               </div>
             </div>
 
             <form onSubmit={addExpense}>
               <label>
                 Summa
+
                 <input
                   name="amount"
                   type="number"
                   min="1"
                   step="1"
+                  inputMode="numeric"
                   placeholder="100000"
                   required
                 />
               </label>
 
               <label>
+                Kategoriya
+
+                <select
+                  name="category"
+                  defaultValue="Boshqa"
+                >
+                  {EXPENSE_CATEGORIES.map(
+                    (category) => (
+                      <option
+                        key={category}
+                        value={category}
+                      >
+                        {category}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+
+              <label>
                 Izoh
+
                 <textarea
                   name="note"
                   maxLength="300"
@@ -817,20 +1524,31 @@ function App() {
           </section>
         )}
 
+        {/* ================= DEBT ================= */}
+
         {page === "debt" && (
           <section className="card form-card">
             <div className="form-header">
-              <div className="form-icon debt">↗</div>
+              <div className="form-icon debt">
+                ↗
+              </div>
 
               <div>
-                <h1>Qarz berish</h1>
-                <p>Berilgan qarzni nazoratda saqlang</p>
+                <h1>
+                  Qarz berish
+                </h1>
+
+                <p>
+                  Berilgan qarzni nazoratda
+                  saqlang
+                </p>
               </div>
             </div>
 
             <form onSubmit={addDebt}>
               <label>
                 Odam
+
                 <input
                   name="person"
                   maxLength="100"
@@ -841,11 +1559,13 @@ function App() {
 
               <label>
                 Summa
+
                 <input
                   name="amount"
                   type="number"
                   min="1"
                   step="1"
+                  inputMode="numeric"
                   placeholder="200000"
                   required
                 />
@@ -853,6 +1573,7 @@ function App() {
 
               <label>
                 Izoh
+
                 <textarea
                   name="note"
                   maxLength="300"
@@ -860,7 +1581,10 @@ function App() {
                 />
               </label>
 
-              <button className="primary" type="submit">
+              <button
+                className="primary"
+                type="submit"
+              >
                 ✓ Qarzni saqlash
               </button>
             </form>
@@ -869,20 +1593,33 @@ function App() {
 
             <div className="section-head">
               <div>
-                <h2>Qarzlar</h2>
-                <p>Barcha qarz yozuvlari</p>
+                <h2>
+                  Qarzlar
+                </h2>
+
+                <p>
+                  Barcha qarz yozuvlari
+                </p>
               </div>
             </div>
 
             {data.debts.length === 0 ? (
               <div className="empty">
-                <div className="empty-icon">◈</div>
-                <b>Hozircha qarzlar yo'q</b>
+                <div className="empty-icon">
+                  ◈
+                </div>
+
+                <b>
+                  Hozircha qarzlar yo'q
+                </b>
               </div>
             ) : (
               <div className="list">
                 {data.debts.map((debt) => (
-                  <div className="debt-item" key={debt.id}>
+                  <div
+                    className="debt-item"
+                    key={debt.id}
+                  >
                     <div className="person-info">
                       <div className="person-avatar">
                         {debt.person
@@ -891,17 +1628,41 @@ function App() {
                       </div>
 
                       <div>
-                        <b>{debt.person}</b>
-                        <small>{debt.date}</small>
+                        <b>
+                          {debt.person}
+                        </b>
+
+                        <small>
+                          Berildi:{" "}
+                          {formatDate(
+                            debt.date
+                          )}
+                        </small>
+
+                        {debt.repaid &&
+                          debt.repaidDate && (
+                            <small>
+                              Qaytdi:{" "}
+                              {formatDate(
+                                debt.repaidDate
+                              )}
+                            </small>
+                          )}
 
                         {debt.note && (
-                          <small>{debt.note}</small>
+                          <small>
+                            {debt.note}
+                          </small>
                         )}
                       </div>
                     </div>
 
                     <div className="debt-right">
-                      <strong>{money(debt.amount)}</strong>
+                      <strong>
+                        {money(
+                          debt.amount
+                        )}
+                      </strong>
 
                       {debt.repaid ? (
                         <span className="badge success">
@@ -911,7 +1672,11 @@ function App() {
                         <button
                           className="small-btn"
                           type="button"
-                          onClick={() => repayDebt(debt.id)}
+                          onClick={() =>
+                            repayDebt(
+                              debt.id
+                            )
+                          }
                         >
                           Qaytdi
                         </button>
@@ -921,7 +1686,11 @@ function App() {
                         <button
                           className="delete-btn"
                           type="button"
-                          onClick={() => deleteDebt(debt.id)}
+                          onClick={() =>
+                            deleteDebt(
+                              debt.id
+                            )
+                          }
                         >
                           O'chirish
                         </button>
@@ -934,112 +1703,455 @@ function App() {
           </section>
         )}
 
+        {/* ================= HISTORY ================= */}
+
         {page === "history" && (
           <section className="card">
             <div className="section-head">
               <div>
-                <h1>Tarix</h1>
-                <p>Barcha pul harakatlari</p>
+                <h1>
+                  Tarix
+                </h1>
+
+                <p>
+                  Barcha pul harakatlari
+                </p>
               </div>
             </div>
 
-            {data.transactions.length === 0 ? (
+            <div className="history-filters">
+              <input
+                type="search"
+                value={historySearch}
+                onChange={(event) =>
+                  setHistorySearch(
+                    event.target.value
+                  )
+                }
+                placeholder="Qidirish..."
+              />
+
+              <select
+                value={historyFilter}
+                onChange={(event) =>
+                  setHistoryFilter(
+                    event.target.value
+                  )
+                }
+              >
+                <option value="all">
+                  Barchasi
+                </option>
+
+                <option value="income">
+                  Kirim
+                </option>
+
+                <option value="expense">
+                  Xarajat
+                </option>
+              </select>
+            </div>
+
+            {filteredTransactions.length ===
+            0 ? (
               <div className="empty">
-                <div className="empty-icon">☷</div>
-                <b>Hozircha tranzaksiyalar yo'q</b>
+                <div className="empty-icon">
+                  ☷
+                </div>
+
+                <b>
+                  Tranzaksiya topilmadi
+                </b>
+
                 <span>
-                  Pul harakatlari shu yerda ko'rinadi.
+                  Qidiruv yoki filter
+                  shartlarini o'zgartiring.
                 </span>
               </div>
             ) : (
               <div className="list">
-                {data.transactions.map((transaction) => (
-                  <div
-                    className="transaction"
-                    key={transaction.id}
-                  >
-                    <div className="person-info">
-                      <div
-                        className={`transaction-icon ${
-                          transaction.type
-                        }`}
-                      >
-                        {transaction.type === "income"
-                          ? "↗"
-                          : "↘"}
-                      </div>
+                {filteredTransactions.map(
+                  (transaction) => (
+                    <div
+                      className="transaction"
+                      key={transaction.id}
+                    >
+                      <div className="person-info">
+                        <div
+                          className={`transaction-icon ${transaction.type}`}
+                        >
+                          {transaction.type ===
+                          "income"
+                            ? "↗"
+                            : "↘"}
+                        </div>
 
-                      <div>
-                        <b>
-                          {transaction.type === "income"
-                            ? "Kirim"
-                            : "Xarajat"}
-                        </b>
+                        <div>
+                          <b>
+                            {transaction.type ===
+                            "income"
+                              ? "Kirim"
+                              : "Xarajat"}
+                          </b>
 
-                        <small>{transaction.date}</small>
-
-                        {transaction.source && (
                           <small>
-                            {transaction.source}
+                            {formatDate(
+                              transaction.date
+                            )}
                           </small>
-                        )}
 
-                        {transaction.note && (
-                          <small>{transaction.note}</small>
-                        )}
+                          {transaction.source && (
+                            <small>
+                              {transaction.source}
+                            </small>
+                          )}
+
+                          {transaction.category && (
+                            <small>
+                              {transaction.category}
+                            </small>
+                          )}
+
+                          {transaction.note && (
+                            <small>
+                              {transaction.note}
+                            </small>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="transaction-right">
+                        <strong
+                          className={
+                            transaction.type
+                          }
+                        >
+                          {transaction.type ===
+                          "income"
+                            ? "+"
+                            : "-"}
+                          {money(
+                            transaction.amount
+                          )}
+                        </strong>
+
+                        <button
+                          className="delete-btn"
+                          type="button"
+                          onClick={() =>
+                            deleteTransaction(
+                              transaction.id
+                            )
+                          }
+                        >
+                          O'chirish
+                        </button>
                       </div>
                     </div>
-
-                    <div className="transaction-right">
-                      <strong className={transaction.type}>
-                        {transaction.type === "income"
-                          ? "+"
-                          : "-"}
-                        {money(transaction.amount)}
-                      </strong>
-
-                      <button
-                        className="delete-btn"
-                        type="button"
-                        onClick={() =>
-                          deleteTransaction(transaction.id)
-                        }
-                      >
-                        O'chirish
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                )}
               </div>
             )}
           </section>
         )}
 
+        {/* ================= ANALYTICS ================= */}
+
+        {page === "analytics" && (
+          <>
+            <section className="card analytics-card">
+              <div className="section-head">
+                <div>
+                  <h1>
+                    Analitika
+                  </h1>
+
+                  <p>
+                    So'nggi 7 kunlik pul
+                    harakati
+                  </p>
+                </div>
+              </div>
+
+              <div className="analytics-summary">
+                <div>
+                  <span>
+                    Jami kirim
+                  </span>
+
+                  <strong>
+                    {money(
+                      analytics.reduce(
+                        (sum, item) =>
+                          sum +
+                          item.income,
+                        0
+                      )
+                    )}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>
+                    Jami xarajat
+                  </span>
+
+                  <strong>
+                    {money(
+                      analytics.reduce(
+                        (sum, item) =>
+                          sum +
+                          item.expense,
+                        0
+                      )
+                    )}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="chart">
+                {analytics.map((item) => (
+                  <div
+                    className="chart-column"
+                    key={item.date}
+                  >
+                    <div className="chart-bars">
+                      <div
+                        className="chart-bar income"
+                        style={{
+                          height: `${
+                            (item.income /
+                              maxAnalyticsValue) *
+                            100
+                          }%`,
+                        }}
+                        title={`Kirim: ${money(
+                          item.income
+                        )}`}
+                      />
+
+                      <div
+                        className="chart-bar expense"
+                        style={{
+                          height: `${
+                            (item.expense /
+                              maxAnalyticsValue) *
+                            100
+                          }%`,
+                        }}
+                        title={`Xarajat: ${money(
+                          item.expense
+                        )}`}
+                      />
+                    </div>
+
+                    <span>
+                      {item.shortDate}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="chart-legend">
+                <span>
+                  <i className="income" />
+                  Kirim
+                </span>
+
+                <span>
+                  <i className="expense" />
+                  Xarajat
+                </span>
+              </div>
+            </section>
+
+            <section className="card">
+              <div className="section-head">
+                <div>
+                  <h2>
+                    Xarajat kategoriyalari
+                  </h2>
+
+                  <p>
+                    Pullar qayerga
+                    sarflanmoqda
+                  </p>
+                </div>
+              </div>
+
+              {categoryStats.length === 0 ? (
+                <div className="empty">
+                  <div className="empty-icon">
+                    ◔
+                  </div>
+
+                  <b>
+                    Hali xarajatlar yo'q
+                  </b>
+
+                  <span>
+                    Xarajat qo'shsangiz,
+                    statistika shu yerda
+                    chiqadi.
+                  </span>
+                </div>
+              ) : (
+                <div className="category-list">
+                  {categoryStats.map(
+                    ([category, amount]) => (
+                      <div
+                        className="category-row"
+                        key={category}
+                      >
+                        <div className="category-info">
+                          <span>
+                            {category}
+                          </span>
+
+                          <strong>
+                            {money(amount)}
+                          </strong>
+                        </div>
+
+                        <div className="category-track">
+                          <div
+                            className="category-fill"
+                            style={{
+                              width: `${
+                                (amount /
+                                  maxCategoryAmount) *
+                                100
+                              }%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-icon total">
+                  #
+                </div>
+
+                <span>
+                  Tranzaksiyalar
+                </span>
+
+                <strong>
+                  {stats.totalTransactions}
+                </strong>
+              </div>
+
+              <div className="stat-card">
+                <div className="stat-icon debt">
+                  ◈
+                </div>
+
+                <span>
+                  Faol qarzlar
+                </span>
+
+                <strong>
+                  {stats.activeDebts}
+                </strong>
+              </div>
+
+              <div className="stat-card">
+                <div className="stat-icon income">
+                  ✓
+                </div>
+
+                <span>
+                  Qaytgan qarzlar
+                </span>
+
+                <strong>
+                  {stats.completedDebts}
+                </strong>
+              </div>
+
+              <div className="stat-card">
+                <div className="stat-icon expense">
+                  ↘
+                </div>
+
+                <span>
+                  Jami xarajat
+                </span>
+
+                <strong>
+                  {money(stats.expense)}
+                </strong>
+              </div>
+            </section>
+          </>
+        )}
+
+        {/* ================= SETTINGS ================= */}
+
         {page === "settings" && (
           <section className="card settings-card">
             <div className="settings-header">
-              <div className="settings-icon">⚙</div>
+              <div className="settings-icon">
+                ⚙
+              </div>
 
               <div>
-                <h1>Sozlamalar</h1>
-                <p>Pulyon ilovasini boshqaring</p>
+                <h1>
+                  Sozlamalar
+                </h1>
+
+                <p>
+                  Pulyon ilovasini boshqaring
+                </p>
               </div>
             </div>
 
             <div className="setting-group">
               <div className="setting-row">
-                <span>Valyuta</span>
-                <b>UZS — so'm</b>
+                <span>
+                  Valyuta
+                </span>
+
+                <b>
+                  UZS — so'm
+                </b>
               </div>
 
               <div className="setting-row">
-                <span>Tranzaksiyalar</span>
-                <b>{data.transactions.length}</b>
+                <span>
+                  Tranzaksiyalar
+                </span>
+
+                <b>
+                  {data.transactions.length}
+                </b>
               </div>
 
               <div className="setting-row">
-                <span>Qarzlar</span>
-                <b>{data.debts.length}</b>
+                <span>
+                  Qarzlar
+                </span>
+
+                <b>
+                  {data.debts.length}
+                </b>
+              </div>
+
+              <div className="setting-row">
+                <span>
+                  Faol qarz
+                </span>
+
+                <b>
+                  {money(stats.lent)}
+                </b>
               </div>
             </div>
 
@@ -1057,11 +2169,18 @@ function App() {
               </span>
 
               <span className="settings-action-text">
-                <b>PIN kodni o'zgartirish</b>
-                <small>Ilovangizni himoyalang</small>
+                <b>
+                  PIN kodni o'zgartirish
+                </b>
+
+                <small>
+                  Ilovangizni himoyalang
+                </small>
               </span>
 
-              <span className="settings-arrow">›</span>
+              <span className="settings-arrow">
+                ›
+              </span>
             </button>
 
             <button
@@ -1074,12 +2193,100 @@ function App() {
               </span>
 
               <span className="settings-action-text">
-                <b>Ilovani qulflash</b>
-                <small>PIN ekraniga qaytish</small>
+                <b>
+                  Ilovani qulflash
+                </b>
+
+                <small>
+                  PIN ekraniga qaytish
+                </small>
               </span>
 
-              <span className="settings-arrow">›</span>
+              <span className="settings-arrow">
+                ›
+              </span>
             </button>
+
+            <div className="settings-section-title">
+              Backup
+            </div>
+
+            <button
+              className="settings-action"
+              type="button"
+              onClick={exportBackup}
+            >
+              <span className="settings-action-icon">
+                💾
+              </span>
+
+              <span className="settings-action-text">
+                <b>
+                  Backup yaratish
+                </b>
+
+                <small>
+                  Ma'lumotlarni JSON faylga
+                  saqlash
+                </small>
+              </span>
+
+              <span className="settings-arrow">
+                ›
+              </span>
+            </button>
+
+            <label className="settings-action">
+              <span className="settings-action-icon">
+                ♻
+              </span>
+
+              <span className="settings-action-text">
+                <b>
+                  Backupni tiklash
+                </b>
+
+                <small>
+                  Oldingi ma'lumotlarni
+                  qaytarish
+                </small>
+              </span>
+
+              <span className="settings-arrow">
+                ›
+              </span>
+
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={restoreBackup}
+                hidden
+              />
+            </label>
+
+            <div className="settings-section-title">
+              Ilova
+            </div>
+
+            <div className="setting-row">
+              <span>
+                Versiya
+              </span>
+
+              <b>
+                Pulyon 2.0
+              </b>
+            </div>
+
+            <div className="setting-row">
+              <span>
+                Avto-qulflash
+              </span>
+
+              <b>
+                5 daqiqa
+              </b>
+            </div>
 
             <div className="settings-section-title">
               Ma'lumotlar
@@ -1096,11 +2303,21 @@ function App() {
         )}
       </main>
 
+      {/* =================
+          BOTTOM NAV
+      ================= */}
+
       <nav className="bottom-nav">
         <button
           type="button"
-          className={page === "home" ? "active" : ""}
-          onClick={() => goTo("home")}
+          className={
+            page === "home"
+              ? "active"
+              : ""
+          }
+          onClick={() =>
+            goTo("home")
+          }
         >
           <span>⌂</span>
           Bosh sahifa
@@ -1108,8 +2325,14 @@ function App() {
 
         <button
           type="button"
-          className={page === "income" ? "active" : ""}
-          onClick={() => goTo("income")}
+          className={
+            page === "income"
+              ? "active"
+              : ""
+          }
+          onClick={() =>
+            goTo("income")
+          }
         >
           <span>＋</span>
           Kirim
@@ -1117,8 +2340,14 @@ function App() {
 
         <button
           type="button"
-          className={page === "expense" ? "active" : ""}
-          onClick={() => goTo("expense")}
+          className={
+            page === "expense"
+              ? "active"
+              : ""
+          }
+          onClick={() =>
+            goTo("expense")
+          }
         >
           <span>−</span>
           Xarajat
@@ -1126,8 +2355,14 @@ function App() {
 
         <button
           type="button"
-          className={page === "debt" ? "active" : ""}
-          onClick={() => goTo("debt")}
+          className={
+            page === "debt"
+              ? "active"
+              : ""
+          }
+          onClick={() =>
+            goTo("debt")
+          }
         >
           <span>↗</span>
           Qarzlar
@@ -1135,8 +2370,14 @@ function App() {
 
         <button
           type="button"
-          className={page === "history" ? "active" : ""}
-          onClick={() => goTo("history")}
+          className={
+            page === "history"
+              ? "active"
+              : ""
+          }
+          onClick={() =>
+            goTo("history")
+          }
         >
           <span>☷</span>
           Tarix
@@ -1144,8 +2385,29 @@ function App() {
 
         <button
           type="button"
-          className={page === "settings" ? "active" : ""}
-          onClick={() => goTo("settings")}
+          className={
+            page === "analytics"
+              ? "active"
+              : ""
+          }
+          onClick={() =>
+            goTo("analytics")
+          }
+        >
+          <span>◔</span>
+          Analitika
+        </button>
+
+        <button
+          type="button"
+          className={
+            page === "settings"
+              ? "active"
+              : ""
+          }
+          onClick={() =>
+            goTo("settings")
+          }
         >
           <span>⚙</span>
           Sozlama
@@ -1155,4 +2417,6 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")).render(<App />);           
+createRoot(
+  document.getElementById("root")
+).render(<App />);
