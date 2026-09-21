@@ -39,14 +39,12 @@ jobs:
 
       - name: Create Capacitor config
         run: |
-          cat > capacitor.config.js <<'EOF'
-          const config = {
-            appId: 'com.pulyon.app',
-            appName: 'Pulyon',
-            webDir: 'dist'
-          };
-
-          export default config;
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.pulyon.app",
+            "appName": "Pulyon",
+            "webDir": "dist"
+          }
           EOF
 
       - name: Create Android project
