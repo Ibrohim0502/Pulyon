@@ -19,42 +19,51 @@ jobs:
         with:
           node-version: 22
 
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+
       - name: Install dependencies
         run: npm install
 
-      - name: Build Pulyon
+      - name: Install Capacitor CLI
+        run: npm install --no-save @capacitor/cli@7.4.3
+
+      - name: Build Pulyon web app
         run: npm run build
 
-      - name: Install Capacitor
-        run: npm install @capacitor/core @capacitor/cli @capacitor/android
-
-      - name: Initialize Capacitor
+      - name: Create Capacitor config
         run: |
-          npx cap init Pulyon com.pulyon.app --web-dir=dist
+          cat > capacitor.config.ts <<'EOF'
+          import type { CapacitorConfig } from '@capacitor/cli';
 
-      - name: Add Android
+          const config: CapacitorConfig = {
+            appId: 'com.pulyon.app',
+            appName: 'Pulyon',
+            webDir: 'dist'
+          };
+
+          export default config;
+          EOF
+
+      - name: Create Android project
         run: npx cap add android
 
       - name: Sync Android
         run: npx cap sync android
 
-      - name: Setup Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools'
-
-      - name: Build APK
+      - name: Build Debug APK
         working-directory: android
         run: ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Pulyon-APK
+          name: Pulyon-2.0-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
